@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract TokenExchange is Ownable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
+    IERC20 public companyToken;
+    IERC20 public usdtToken;
+
+    uint256 public exchangeRate;
+
+    event TokensPurchased(address indexed buyer, uint256 usdtAmount, uint256 companyTokenAmount);
+    event Withdrawal(address indexed owner, uint256 usdtAmount);
+    event CompanyTokenWithdrawal(address indexed owner, uint256 companyTokenAmount);
+
+    constructor(IERC20 _companyToken, IERC20 _usdtToken, uint256 _exchangeRate) {
+        require(_companyToken != IERC20(address(0)), "Invalid companyToken address");
+        require(_usdtToken != IERC20(address(0)), "Invalid USDT token address");
+        require(_exchangeRate > 0, "Invalid exchange rate");
+
+        companyToken = _companyToken;
+        usdtToken = _usdtToken;
+        exchangeRate = _exchangeRate;
+    }
+
+    function purchaseTokens(uint256 usdtAmount) external nonReentrant {
+        require(usdtAmount > 0, "Invalid USDT amount");
+        require(usdtToken.allowance(msg.sender, address(this)) >= usdtAmount, "Insufficient allowance");
+        
+        // Transfer USDT from the sender to the contract
+        usdtToken.safeTransferFrom(msg.sender, address(this), usdtAmount);
+
+        // Calculate the amount of companyToken to be issued
+        uint256 companyTokenAmount = usdtAmount * exchangeRate;
+
+        // Transfer companyToken to the sender
+        companyToken.safeTransfer(msg.sender, companyTokenAmount);
+
+        // Emit TokensPurchased event
+        emit TokensPurchased(msg.sender, usdtAmount, companyTokenAmount);
+    }
+
+    function withdrawUsdt(uint256 usdtAmount) external onlyOwner nonReentrant {
+        require(usdtAmount > 0, "Invalid USDT amount");
+        require(usdtToken.balanceOf(address(this)) >= usdtAmount, "Insufficient USDT balance");
+
+        // Transfer USDT to the owner
+        usdtToken.safeTransfer(owner(), usdtAmount);
+
+        // Emit Withdrawal event
+        emit Withdrawal(owner(), usdtAmount);
+    }
+
+    function withdrawCompanyToken(uint256 companyTokenAmount) external onlyOwner nonReentrant {
+        require(companyTokenAmount > 0, "Invalid companyToken amount");
+        require(companyToken.balanceOf(address(this)) >= companyTokenAmount, "Insufficient companyToken balance");
+
+        // Transfer remaining companyToken to the owner
+        companyToken.safeTransfer(owner(), companyTokenAmount);
+
+        // Emit CompanyTokenWithdrawal event
+        emit CompanyTokenWithdrawal(owner(), companyTokenAmount);
+    }
+
+    // Fallback function to revert accidental ETH transfers
+    receive() external payable {
+        revert("Contract does not accept ETH");
+    }
+
+    // Public view function to get the balance of companyToken
+    function getCompanyTokenBalance() external view returns (uint256) {
+        return companyToken.balanceOf(address(this));
+    }
+
+    // Public view function to get the balance of USDT
+    function getUsdtBalance() external view returns (uint256) {
+        return usdtToken.balanceOf(address(this));
+    }
+}
